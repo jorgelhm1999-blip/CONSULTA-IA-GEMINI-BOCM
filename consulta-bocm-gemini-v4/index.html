@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Consulta Diaria BOCM</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">BOLETÍN OFICIAL DE LA COMUNIDAD DE MADRID</p>
+      <img src="assets/cabecera-consulta-diaria-bocm.png" alt="Consulta Diaria BOCM" style="display:block;width:min(920px,100%);height:auto;margin:0 auto;">
+      <p class="subtitle">Selección diaria de publicaciones útiles sobre urbanismo, medio ambiente territorial e ingeniería civil.</p>
+    </header>
+
+    <nav class="tabs" aria-label="Tipo de consulta">
+      <button id="tab-daily" class="tab active" type="button" aria-controls="panel-daily" aria-selected="true">Consulta diaria</button>
+      <button id="tab-historical" class="tab" type="button" aria-controls="panel-historical" aria-selected="false">Búsqueda histórica</button>
+    </nav>
+
+    <div id="panel-daily" class="tab-panel active">
+    <section class="search-panel" aria-label="Consulta diaria">
+      <div class="field date-field">
+        <label for="date">Fecha del boletín</label>
+        <input id="date" type="date" required>
+      </div>
+      <div class="field municipality-field">
+        <label for="municipality">Municipio <span>opcional</span></label>
+        <input id="municipality" type="search" list="municipality-list" autocomplete="off" placeholder="Todos los municipios">
+      </div>
+      <button id="search" type="button">Consultar BOCM</button>
+    </section>
+
+    <datalist id="municipality-list"></datalist>
+    <section id="status" class="status" aria-live="polite"></section>
+    <section id="email-actions" class="email-actions" hidden>
+      <button id="prepare-email" class="secondary-button" type="button">Preparar correo</button>
+      <span>Abre un correo con los enlaces de las publicaciones mostradas.</span>
+    </section>
+    <section id="results" class="results" aria-label="Resultados"></section>
+    </div>
+
+    <div id="panel-historical" class="tab-panel" hidden>
+      <section class="historical-panel" aria-label="Búsqueda histórica">
+        <div class="field query-field">
+          <label for="historical-query">Palabra o frase</label>
+          <input id="historical-query" type="search" minlength="2" maxlength="120" placeholder="Por ejemplo: proyecto de urbanización">
+        </div>
+        <div class="field range-field">
+          <span class="field-label">Fechas de publicación</span>
+          <button id="range-toggle" class="range-toggle" type="button" aria-expanded="false" aria-controls="calendar-popover">
+            <span><small>INICIO</small><strong id="range-start-label">Seleccionar</strong></span>
+            <span class="range-separator" aria-hidden="true">→</span>
+            <span><small>FIN</small><strong id="range-end-label">Seleccionar</strong></span>
+          </button>
+        </div>
+        <div class="field municipality-field">
+          <label for="historical-municipality">Municipio <span>opcional</span></label>
+          <input id="historical-municipality" type="search" list="municipality-list" autocomplete="off" placeholder="Todos los municipios">
+        </div>
+        <button id="historical-search" type="button">Buscar</button>
+      </section>
+      <div id="calendar-popover" class="calendar-popover" hidden>
+        <div class="calendar-heading">
+          <button id="calendar-prev" class="calendar-arrow" type="button" aria-label="Mes anterior">‹</button>
+          <label class="sr-only" for="calendar-month">Mes</label><select id="calendar-month"></select>
+          <label class="sr-only" for="calendar-year">Año</label><select id="calendar-year"></select>
+          <button id="calendar-next" class="calendar-arrow" type="button" aria-label="Mes siguiente">›</button>
+        </div>
+        <p id="calendar-instruction" class="calendar-instruction">Selecciona la fecha de inicio.</p>
+        <div class="calendar-weekdays" aria-hidden="true"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
+        <div id="calendar-grid" class="calendar-grid" role="group" aria-label="Días del mes"></div>
+        <div class="calendar-actions">
+          <button id="calendar-edit-start" class="calendar-edit active" type="button">Cambiar inicio</button>
+          <button id="calendar-edit-end" class="calendar-edit" type="button">Cambiar fin</button>
+          <button id="calendar-close" class="calendar-edit" type="button">Cerrar</button>
+        </div>
+      </div>
+      <p class="hint">Se busca la expresión literal en el texto y los metadatos oficiales. Un año completo puede tardar bastante; mantén la pestaña abierta.</p>
+      <section id="historical-status" class="status" aria-live="polite"></section>
+      <div class="historical-actions">
+        <button id="historical-cancel" class="secondary-button" type="button" hidden>Detener búsqueda</button>
+        <button id="historical-more" class="secondary-button" type="button" hidden>Mostrar más resultados</button>
+      </div>
+      <section id="historical-results" class="results" aria-label="Coincidencias históricas"></section>
+    </div>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
