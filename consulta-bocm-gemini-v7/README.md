@@ -12,10 +12,11 @@ Aplicación web con dos modos independientes:
 
 ## Informe diario v7
 
-El archivo `.github/workflows/informe-diario.yml` ejecuta `scripts/daily-report.js`
+El archivo `.github/workflows/informe-diario.yml` en la raíz del repositorio
+ejecuta `consulta-bocm-gemini-v7/scripts/daily-report.js`
 cada día a las 08:30 en `Europe/Madrid`, incluidos los cambios de horario.
 La programación y el botón manual de GitHub Actions funcionan sobre la rama
-predeterminada. Para cambiar la hora, edita `cron: '30 8 * * *'`: el primer
+predeterminada. Para cambiar la hora, edita `cron: '30 8 * * *'` en el flujo de la raíz: el primer
 número son los minutos y el segundo la hora local, en formato de 24 horas.
 
 El proceso pide el manifiesto a `/api/search?mode=manifest`, consulta lotes de
@@ -106,7 +107,7 @@ test/                     pruebas con respuestas simuladas
 
 ## Despliegue en GitHub y Vercel
 
-1. Sube **el contenido de esta carpeta** a la raíz del repositorio GitHub. También puedes subir la carpeta entera; en ese caso configura **Root Directory** en Vercel como `consulta-bocm-gemini-v4`. Si el contenido está directamente en la raíz, deja Root Directory en `./`.
+1. En este repositorio la versión 7 se encuentra en `consulta-bocm-gemini-v7`. Si decides desplegar esta carpeta desde Vercel, configura **Root Directory** como `consulta-bocm-gemini-v7`. Confirma antes qué carpeta utiliza actualmente el despliegue; el informe automático consulta la URL pública indicada en `BOCM_APP_URL`.
 2. Mantén el proyecto de Vercel conectado a ese repositorio y selecciona el framework **Other**. No se requiere comando de compilación ni directorio de salida especial.
 3. En **Settings → Environment Variables**, conserva `GEMINI_API_KEY` (privada) y, si se usa, `GEMINI_MODEL` (por defecto `gemini-3.1-flash-lite`). La búsqueda histórica con el interruptor apagado funciona sin estas variables; la consulta diaria y el filtro de interés sí las necesitan.
 4. Despliega la nueva revisión. Comprueba `/api/historical?mode=manifest&date=2026-09-25` y una consulta diaria. No publiques claves en GitHub.
