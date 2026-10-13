@@ -1,5 +1,6 @@
 const BATCH_SIZE = 12;
 const MAX_RETRY_ROUNDS = 3;
+const TRANSIENT_HTTP_STATUSES = new Set([429, 500, 502, 503, 504]);
 const EMAIL_PATTERN = /^[^\s@,<>]+@[^\s@,<>]+\.[^\s@,<>]+$/;
 
 export function madridDate(now = new Date()) {
@@ -38,9 +39,20 @@ function sortCve(a, b) {
 async function requestJson(baseUrl, params, fetcher) {
   const url = new URL('/api/search', baseUrl);
   url.search = new URLSearchParams(params).toString();
-  const response = await fetcher(url, { headers: { Accept: 'application/json' } });
-  if (!response.ok) throw new Error(`Bocmi devolvió HTTP ${response.status} al consultar ${params.mode}.`);
-  return response.json();
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    let response;
+    try {
+      response = await fetcher(url, { headers: { Accept: 'application/json' } });
+    } catch (error) {
+      if (attempt === 3) throw error;
+    }
+    if (response?.ok) return response.json();
+    if (response && (!TRANSIENT_HTTP_STATUSES.has(response.status) || attempt === 3)) {
+      const detail = await response.json().then(data => String(data?.error || '').slice(0, 250)).catch(() => '');
+      throw new Error(`Bocmi devolvió HTTP ${response.status} al consultar ${params.mode}${detail ? `: ${detail}` : ''}.`);
+    }
+    await new Promise(resolve => setTimeout(resolve, attempt * 1500));
+  }
 }
 
 export async function collectDailyReport(baseUrl, date, fetcher = fetch) {
@@ -57,7 +69,17 @@ export async function collectDailyReport(baseUrl, date, fetcher = fetch) {
   const failed = new Set(manifest.failedCves || []);
 
   async function processBatch(batch) {
-    const data = await requestJson(baseUrl, { mode: 'batch', date, cves: batch.join(',') }, fetcher);
+    let data;
+    try {
+      data = await requestJson(baseUrl, { mode: 'batch', date, cves: batch.join(',') }, fetcher);
+    } catch (error) {
+      if (batch.length === 1 || !/HTTP (?:429|5\d\d)|fetch failed|timeout/i.test(String(error))) throw error;
+      console.warn(`El lote de ${batch.length} anuncios falló. Se divide para reintentarlo.`);
+      const middle = Math.ceil(batch.length / 2);
+      await processBatch(batch.slice(0, middle));
+      await processBatch(batch.slice(middle));
+      return;
+    }
     for (const item of data.results || []) principal.set(item.cve, item);
     for (const item of data.complementary || []) complementary.set(item.cve, item);
     for (const item of data.doubtful || []) doubtful.set(item.cve, item);
