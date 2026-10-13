@@ -37,6 +37,25 @@ test('un XML pendiente impide tratar la consulta como completa y enviar el infor
   );
 });
 
+test('un lote que agota el tiempo se divide y conserva todos los anuncios', async () => {
+  const cves = Array.from({ length: 12 }, (_, index) => `BOCM-20261009-${index + 1}`);
+  let largeRequests = 0;
+  const fetcher = async url => {
+    const params = new URL(url).searchParams;
+    if (params.get('mode') === 'manifest') return Response.json({ found: true, cves, bulletinNumber: 200 });
+    const batch = params.get('cves').split(',');
+    if (batch.length > 6) {
+      largeRequests++;
+      return Response.json({ error: 'Tiempo agotado al consultar anuncios.' }, { status: 502 });
+    }
+    return Response.json({ failedCves: [], results: batch.map(cve => ({ cve, title: cve })) });
+  };
+  const report = await collectDailyReport('https://consulta-ia-gemini-bocm.vercel.app/', '2026-10-09', fetcher);
+  assert.equal(largeRequests, 3);
+  assert.equal(report.principal.length, 12);
+  assert.equal(report.scanned, 12);
+});
+
 test('Gmail recibe el remitente autorizado y todos los destinatarios', async () => {
   const env = { BOCM_MAIL_FROM: 'bocmi@gmail.com', BOCM_MAIL_TO: 'uno@example.com, dos@example.com',
     GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret', GOOGLE_REFRESH_TOKEN: 'refresh' };
