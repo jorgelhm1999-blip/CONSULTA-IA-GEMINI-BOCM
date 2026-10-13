@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: '30 8 * * *'
       timezone: 'Europe/Madrid'
+    - cron: '45 9 * * *'
+      timezone: 'Europe/Madrid'
   workflow_dispatch:
     inputs:
       date:
