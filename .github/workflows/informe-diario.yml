@@ -6,7 +6,6 @@ on:
       timezone: 'Europe/Madrid'
     - cron: '45 9 * * *'
       timezone: 'Europe/Madrid'
-    - cron: '25 8 13 10 *' # Diagnóstico del 13/10/2026 a las 10:25 de Madrid (UTC)
   workflow_dispatch:
     inputs:
       date:
