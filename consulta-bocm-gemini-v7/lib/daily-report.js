@@ -176,7 +176,18 @@ export async function sendWithGmail(message, env, fetcher = fetch) {
       client_secret: env.GOOGLE_CLIENT_SECRET, refresh_token: env.GOOGLE_REFRESH_TOKEN,
       grant_type: 'refresh_token' }).toString()
   });
-  if (!tokenResponse.ok) throw new Error(`Google no autorizó el envío (HTTP ${tokenResponse.status}).`);
+  if (!tokenResponse.ok) {
+    // OAuth error codes are safe to log; never print tokens or credentials.
+    const errorBody = await tokenResponse.json().catch(() => ({}));
+    const code = typeof errorBody?.error === 'string' && /^[a-z_]+$/.test(errorBody.error)
+      ? errorBody.error : '';
+    const hint = code === 'invalid_grant'
+      ? 'El refresh token ha caducado o fue revocado. Genera otro con las mismas credenciales OAuth y actualiza GOOGLE_REFRESH_TOKEN en GitHub Secrets.'
+      : code === 'invalid_client'
+        ? 'Comprueba que GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET pertenecen al mismo cliente OAuth que el refresh token.'
+        : 'Revisa las credenciales OAuth en GitHub Secrets.';
+    throw new Error(`Google no autorizó el envío (HTTP ${tokenResponse.status}${code ? `, ${code}` : ''}). ${hint}`);
+  }
   const token = await tokenResponse.json();
   if (!token.access_token) throw new Error('Google no devolvió un token de acceso.');
 
