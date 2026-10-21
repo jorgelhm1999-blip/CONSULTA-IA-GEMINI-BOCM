@@ -1,7 +1,7 @@
 import { CRITERIOS_BOCM } from './criterios-bocm.js';
 
 const DEFAULT_MODEL = 'gemini-3.1-flash-lite';
-const DEFAULT_FALLBACK_MODEL = 'gemini-2.5-flash-lite';
+const DEFAULT_FALLBACK_MODEL = 'gemini-3.5-flash-lite';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const MIN_CALL_INTERVAL_MS = 1500;
 let nextCallAt = 0;
@@ -67,7 +67,6 @@ async function callGemini(input, stage) {
     systemInstruction: { parts: [{ text: `${CRITERIOS_BOCM}\n\nETAPA ACTUAL: ${stage}` }] },
     contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
     generationConfig: {
-      temperature: 0,
       responseMimeType: 'application/json',
       responseJsonSchema: resultSchema
     }
