@@ -94,6 +94,7 @@ async function runSearch() {
 
     const allCves = manifest.cves;
     for (let offset = 0; offset < allCves.length; offset += BATCH_SIZE) {
+      if (offset) await new Promise(resolve => setTimeout(resolve, 1500));
       const batch = allCves.slice(offset, offset + BATCH_SIZE);
       status.innerHTML = `<span class="spinner"></span>Revisando anuncios ${offset + 1}-${Math.min(offset + batch.length, allCves.length)} de ${allCves.length}…`;
 
