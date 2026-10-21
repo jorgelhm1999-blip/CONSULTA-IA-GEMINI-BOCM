@@ -91,6 +91,7 @@ export async function collectDailyReport(baseUrl, date, fetcher = fetch) {
   }
 
   for (let index = 0; index < cves.length; index += BATCH_SIZE) {
+    if (index) await new Promise(resolve => setTimeout(resolve, 1500));
     await processBatch(cves.slice(index, index + BATCH_SIZE));
   }
   for (let round = 0; failed.size && round < MAX_RETRY_ROUNDS; round++) {
