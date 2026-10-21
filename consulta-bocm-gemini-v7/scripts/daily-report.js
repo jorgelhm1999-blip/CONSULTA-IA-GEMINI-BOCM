@@ -1,5 +1,6 @@
-import { collectDailyReport, formatReport, madridDate, sendWithGmail, validateDate } from '../lib/daily-report.js';
+import { collectDailyReport, formatReport, madridDate, parseMailConfig, sendWithGmail, validateDate } from '../lib/daily-report.js';
 import { appendFile, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 
 const baseUrl = process.env.BOCM_APP_URL;
 if (!baseUrl || new URL(baseUrl).protocol !== 'https:') {
@@ -39,8 +40,22 @@ if (dryRun) {
   console.log(message.subject);
   console.log(message.text);
 } else {
-  const messageId = await sendWithGmail(message, process.env);
-  console.log(`Informe enviado por Gmail. ID: ${messageId}`);
-  await writeFile('.bocmi-sent.txt', `BOCM ${date}, Gmail ID ${messageId}\n`, { mode: 0o600 });
+  let confirmation;
+  if (process.env.GOOGLE_APP_PASSWORD) {
+    const { from, to } = parseMailConfig(process.env, { requireOAuth: false });
+    const result = spawnSync('python3', ['scripts/send-smtp.py'], {
+      input: JSON.stringify({ from, to, ...message }), encoding: 'utf8',
+      env: process.env, timeout: 45000
+    });
+    if (result.error || result.status !== 0) {
+      throw new Error(`Falló el envío SMTP: ${result.stderr?.trim() || result.error?.message || 'error desconocido'}`);
+    }
+    confirmation = 'Gmail SMTP aceptó el mensaje';
+  } else {
+    const messageId = await sendWithGmail(message, process.env);
+    confirmation = `Gmail ID ${messageId}`;
+  }
+  console.log(`Informe enviado. ${confirmation}`);
+  await writeFile('.bocmi-sent.txt', `BOCM ${date}, ${confirmation}\n`, { mode: 0o600 });
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `sent_date=${date}\n`);
 }
