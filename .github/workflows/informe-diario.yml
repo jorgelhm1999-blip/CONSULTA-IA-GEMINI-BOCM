@@ -39,6 +39,7 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          GOOGLE_APP_PASSWORD: ${{ secrets.GOOGLE_APP_PASSWORD }}
           BOCM_DATE: ${{ inputs.date }}
           BOCM_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
           GITHUB_TOKEN: ${{ github.token }}
