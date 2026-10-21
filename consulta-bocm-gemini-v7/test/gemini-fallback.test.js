@@ -22,8 +22,8 @@ test('dos respuestas 503 activan el modelo alternativo con el mismo esquema y cr
     assert.equal(result[0].decision, 'principal');
     assert.deepEqual(calls.map(call => new URL(call.url).pathname.split('/').pop()), [
       'gemini-3.1-flash-lite:generateContent', 'gemini-3.1-flash-lite:generateContent',
-      'gemini-2.5-flash-lite:generateContent', 'gemini-3.1-flash-lite:generateContent',
-      'gemini-3.1-flash-lite:generateContent', 'gemini-2.5-flash-lite:generateContent'
+      'gemini-3.5-flash-lite:generateContent', 'gemini-3.1-flash-lite:generateContent',
+      'gemini-3.1-flash-lite:generateContent', 'gemini-3.5-flash-lite:generateContent'
     ]);
     assert.deepEqual(calls[0].body, calls[2].body);
     assert.deepEqual(calls[3].body, calls[5].body);
