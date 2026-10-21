@@ -153,14 +153,16 @@ export function formatReport(report) {
   return { subject, text: text.join('\n').trim(), html: html.join('') };
 }
 
-export function parseMailConfig(env) {
+export function parseMailConfig(env, { requireOAuth = true } = {}) {
   const from = String(env.BOCM_MAIL_FROM || '').trim();
   const to = String(env.BOCM_MAIL_TO || '').split(',').map(value => value.trim()).filter(Boolean);
   if (!EMAIL_PATTERN.test(from) || !to.length || to.some(value => !EMAIL_PATTERN.test(value))) {
     throw new Error('Configura BOCM_MAIL_FROM y BOCM_MAIL_TO (direcciones separadas por comas).');
   }
-  for (const name of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN']) {
-    if (!env[name]) throw new Error(`Falta el secreto ${name}.`);
+  if (requireOAuth) {
+    for (const name of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN']) {
+      if (!env[name]) throw new Error(`Falta el secreto ${name}.`);
+    }
   }
   return { from, to };
 }
