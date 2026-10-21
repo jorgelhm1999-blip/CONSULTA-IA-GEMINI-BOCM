@@ -1,7 +1,17 @@
 import { CRITERIOS_BOCM } from './criterios-bocm.js';
 
 const DEFAULT_MODEL = 'gemini-3.1-flash-lite';
+const DEFAULT_FALLBACK_MODEL = 'gemini-2.5-flash-lite';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const MIN_CALL_INTERVAL_MS = 1500;
+let nextCallAt = 0;
+
+async function paceCall() {
+  const now = Date.now();
+  const startAt = Math.max(now, nextCallAt);
+  nextCallAt = startAt + MIN_CALL_INTERVAL_MS;
+  if (startAt > now) await new Promise(resolve => setTimeout(resolve, startAt - now));
+}
 
 const resultSchema = {
   type: 'object',
@@ -52,58 +62,70 @@ async function callGemini(input, stage) {
   if (!apiKey) throw new Error('Falta configurar GEMINI_API_KEY en Vercel.');
 
   const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
-  const url = `${API_BASE}/${encodeURIComponent(model)}:generateContent`;
-  const delays = [0, 2000, 5000, 12000];
-  let lastError;
-
-  for (let attempt = 0; attempt < delays.length; attempt += 1) {
-    if (delays[attempt]) await new Promise(resolve => setTimeout(resolve, delays[attempt]));
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45000);
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: `${CRITERIOS_BOCM}\n\nETAPA ACTUAL: ${stage}` }] },
-          contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
-          generationConfig: {
-            temperature: 0,
-            responseMimeType: 'application/json',
-            responseJsonSchema: resultSchema
-          }
-        })
-      });
-
-      const raw = await response.text();
-      let data;
-      try { data = raw ? JSON.parse(raw) : {}; }
-      catch { throw new Error(`Gemini devolvió una respuesta no válida (${response.status}).`); }
-
-      if (!response.ok) {
-        const error = new Error(friendlyGeminiError(response.status, data));
-        error.status = response.status;
-        throw error;
-      }
-
-      const text = outputText(data);
-      if (!text) throw new Error('Gemini no devolvió la clasificación esperada.');
-      try { return JSON.parse(text); }
-      catch { throw new Error('Gemini devolvió una clasificación que no pudo interpretarse como JSON.'); }
-    } catch (error) {
-      lastError = error?.name === 'AbortError'
-        ? new Error('Gemini tardó demasiado en responder.')
-        : error;
-      const transient = error?.name === 'AbortError' || [429, 500, 502, 503, 504].includes(error?.status);
-      if (!transient || attempt === delays.length - 1) break;
-    } finally {
-      clearTimeout(timeout);
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || DEFAULT_FALLBACK_MODEL;
+  const requestBody = JSON.stringify({
+    systemInstruction: { parts: [{ text: `${CRITERIOS_BOCM}\n\nETAPA ACTUAL: ${stage}` }] },
+    contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: 'application/json',
+      responseJsonSchema: resultSchema
     }
+  });
+
+  async function attemptModel(modelName, delays) {
+    const url = `${API_BASE}/${encodeURIComponent(modelName)}:generateContent`;
+    let lastError;
+    for (let attempt = 0; attempt < delays.length; attempt += 1) {
+      if (delays[attempt]) await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+      await paceCall();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000);
+
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          signal: controller.signal,
+          headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+          body: requestBody
+        });
+
+        const raw = await response.text();
+        let data;
+        try { data = raw ? JSON.parse(raw) : {}; }
+        catch { throw new Error(`Gemini devolvió una respuesta no válida (${response.status}).`); }
+
+        if (!response.ok) {
+          const error = new Error(friendlyGeminiError(response.status, data));
+          error.status = response.status;
+          throw error;
+        }
+
+        const text = outputText(data);
+        if (!text) throw new Error('Gemini no devolvió la clasificación esperada.');
+        try { return JSON.parse(text); }
+        catch { throw new Error('Gemini devolvió una clasificación que no pudo interpretarse como JSON.'); }
+      } catch (error) {
+        lastError = error?.name === 'AbortError'
+          ? new Error('Gemini tardó demasiado en responder.')
+          : error;
+        const transient = error?.name === 'AbortError' || [429, 500, 502, 503, 504].includes(error?.status);
+        if (!transient || attempt === delays.length - 1) break;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    throw lastError || new Error('Gemini no pudo completar la revisión.');
   }
 
-  throw lastError || new Error('Gemini no pudo completar la revisión.');
+  try {
+    return await attemptModel(model, [0, 3000]);
+  } catch (error) {
+    // A 503 indicates model capacity; a project-wide 429 must not switch models.
+    if (error.status !== 503 || !fallbackModel || fallbackModel === model) throw error;
+    console.warn(`Gemini ${model} sin capacidad (503). Probando ${fallbackModel}.`);
+    return attemptModel(fallbackModel, [0, 4000]);
+  }
 }
 
 function compactRecord(record, includeBody = false) {
