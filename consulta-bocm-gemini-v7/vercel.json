@@ -1,7 +1,10 @@
 {
   "functions": {
     "api/search.js": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "regions": [
+        "cdg1"
+      ]
     },
     "api/historical.js": {
       "maxDuration": 60
@@ -11,8 +14,14 @@
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
       ]
     }
   ]
