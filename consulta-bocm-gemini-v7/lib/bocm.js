@@ -761,7 +761,7 @@ export async function getBocmManifest(date, { historical = false } = {}) {
   const summaryUrl = dailySummaryXmlUrl(date, bulletinNumber);
   const completeUrl = `${BASE}/boletin-completo/BOCM-${compact}/${bulletinNumber}`;
   const summary = await fetchResource(completeUrl, {
-    timeoutMs: historical ? 8000 : 9000, attempts: 2
+    timeoutMs: historical ? 8000 : 12000, attempts: historical ? 2 : 3
   });
   if (summary.kind !== 'ok' || !summary.text) {
     throw new Error('No se pudo obtener la relación oficial de anuncios del boletín.');
