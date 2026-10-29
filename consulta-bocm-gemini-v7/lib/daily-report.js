@@ -1,5 +1,5 @@
-const BATCH_SIZE = 12;
-const MAX_RETRY_ROUNDS = 3;
+const BATCH_SIZE = 6;
+const MAX_RETRY_ROUNDS = 4;
 const TRANSIENT_HTTP_STATUSES = new Set([429, 500, 502, 503, 504]);
 const EMAIL_PATTERN = /^[^\s@,<>]+@[^\s@,<>]+\.[^\s@,<>]+$/;
 
@@ -96,7 +96,11 @@ export async function collectDailyReport(baseUrl, date, fetcher = fetch) {
   }
   for (let round = 0; failed.size && round < MAX_RETRY_ROUNDS; round++) {
     const pending = [...failed];
+    const pauseMs = (round + 1) * 10000;
+    console.log(`Esperando ${pauseMs / 1000} s antes de reintentar ${pending.length} anuncios pendientes (ronda ${round + 1}/${MAX_RETRY_ROUNDS}).`);
+    await new Promise(resolve => setTimeout(resolve, pauseMs));
     for (let index = 0; index < pending.length; index += BATCH_SIZE) {
+      if (index) await new Promise(resolve => setTimeout(resolve, 1500));
       await processBatch(pending.slice(index, index + BATCH_SIZE));
     }
   }
