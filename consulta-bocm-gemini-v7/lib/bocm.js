@@ -184,22 +184,23 @@ async function locateBulletin(dateString, { historical = false } = {}) {
     { number, url: `${BASE}/boletin/bocm-${compact}${number}` }
   ]);
   const inspect = async ({ number, url }) => {
-      const response = await fetchResource(url, {
-        timeoutMs: historical ? 3500 : 10000, attempts: historical ? 1 : 2
-      });
-      if (response.kind === 'transient') temporaryFailures += 1;
-      if (response.kind === 'ok' && bulletinPageLooksValid(response.text, compact, number)) {
-        return { number, url, html: response.text };
-      }
-      return null;
+    const response = await fetchResource(url, {
+      timeoutMs: historical ? 3500 : 6500, attempts: 1
+    });
+    if (response.kind === 'transient') temporaryFailures += 1;
+    if (response.kind === 'ok' && bulletinPageLooksValid(response.text, compact, number)) {
+      return { number, url, html: response.text };
+    }
+    return null;
   };
-  for (let index = 0; index < urls.length; index += historical ? 3 : 1) {
-    const inspected = await Promise.all(urls.slice(index, index + (historical ? 3 : 1)).map(inspect));
+  // Cada grupo comprueba tres números próximos y sus dos variantes de URL.
+  // Así un servidor lento no consume los 60 segundos de la función en serie.
+  for (let index = 0; index < urls.length; index += 6) {
+    const inspected = await Promise.all(urls.slice(index, index + 6).map(inspect));
     const found = inspected.find(Boolean);
     if (found) return found;
   }
-  // Un fallo de red no demuestra que el día carezca de boletín.
-  if (temporaryFailures) throw new Error('El BOCM no respondió al comprobar esta fecha. Vuelve a intentarlo.');
+  if (temporaryFailures) throw new Error('El BOCM no respondió al comprobar esta fecha. No se puede completar el informe.');
   return null;
 }
 
@@ -760,7 +761,7 @@ export async function getBocmManifest(date, { historical = false } = {}) {
   const summaryUrl = dailySummaryXmlUrl(date, bulletinNumber);
   const completeUrl = `${BASE}/boletin-completo/BOCM-${compact}/${bulletinNumber}`;
   const summary = await fetchResource(completeUrl, {
-    timeoutMs: historical ? 8000 : 12000, attempts: historical ? 2 : 3
+    timeoutMs: historical ? 8000 : 9000, attempts: 2
   });
   if (summary.kind !== 'ok' || !summary.text) {
     throw new Error('No se pudo obtener la relación oficial de anuncios del boletín.');
