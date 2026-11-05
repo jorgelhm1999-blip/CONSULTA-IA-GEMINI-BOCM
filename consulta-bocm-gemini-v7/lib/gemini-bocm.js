@@ -135,33 +135,19 @@ function compactRecord(record, includeBody = false) {
     organismo: record.organization || '',
     titulo: record.title || ''
   };
-  if (includeBody) base.texto = String(record.body || '').slice(0, 14000);
+  if (includeBody) base.texto = String(record.body || '');
   return base;
 }
 
 export async function analyzeBocmRecords(records) {
   if (!records.length) return [];
 
-  const first = await callGemini(
-    { anuncios: records.map(record => compactRecord(record, false)) },
-    'Primera revisión. Clasifica todos los CVE. Reserva revisar para los casos donde título y metadatos no permitan identificar el objeto real.'
+  // Una única revisión del contenido completo: no excluir por título.
+  const response = await callGemini(
+    { anuncios: records.map(record => compactRecord(record, true)) },
+    'Revisión única con el texto completo de cada anuncio. Clasifica TODOS los CVE por su acto y objeto real. No excluyas por el título. Devuelve principal, complementario, excluir o revisar; usa revisar cuando falte información suficiente. Redacta el resumen final de los seleccionados.'
   );
-  const firstMap = new Map((first.resultados || []).map(item => [item.cve, item]));
-
-  // Segunda lectura severa para TODO candidato seleccionado o dudoso.
-  // Así una falsa inclusión clara en la primera etapa no elude el texto completo.
-  const candidates = records.filter(record => {
-    const decision = firstMap.get(record.cve)?.decision;
-    return decision === 'principal' || decision === 'complementario' || decision === 'revisar';
-  });
-
-  if (candidates.length) {
-    const second = await callGemini(
-      { anuncios: candidates.map(record => compactRecord(record, true)) },
-      'Segunda revisión severa con texto completo. Reevalúa desde cero. Aplica primero las exclusiones absolutas. Devuelve principal, complementario o excluir. Usa revisar solo si el texto está realmente incompleto.'
-    );
-    for (const item of second.resultados || []) firstMap.set(item.cve, item);
-  }
+  const firstMap = new Map((response.resultados || []).map(item => [item.cve, item]));
 
   return records.map(record => firstMap.get(record.cve) || ({
     cve: record.cve,
