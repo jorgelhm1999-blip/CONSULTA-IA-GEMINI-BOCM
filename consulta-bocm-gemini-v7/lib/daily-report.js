@@ -1,4 +1,4 @@
-const BATCH_SIZE = 6;
+const BATCH_SIZE = 4;
 const MAX_RETRY_ROUNDS = 4;
 const TRANSIENT_HTTP_STATUSES = new Set([429, 500, 502, 503, 504]);
 const EMAIL_PATTERN = /^[^\s@,<>]+@[^\s@,<>]+\.[^\s@,<>]+$/;
@@ -38,7 +38,7 @@ function sortCve(a, b) {
 
 async function requestJson(baseUrl, params, fetcher) {
   const url = new URL('/api/search', baseUrl);
-  url.search = new URLSearchParams(params).toString();
+  url.search = new URLSearchParams({ ...params, cacheVersion: '2' }).toString();
   for (let attempt = 1; attempt <= 3; attempt++) {
     let response;
     try {
