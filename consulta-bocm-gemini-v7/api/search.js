@@ -1,6 +1,7 @@
 import { getBocmManifest, searchBocmCveBatch } from '../lib/bocm.js';
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Método no permitido.' });
   }
@@ -43,7 +44,8 @@ export default async function handler(req, res) {
       ? 's-maxage=300, stale-while-revalidate=60'
       : 's-maxage=86400, stale-while-revalidate=604800';
 
-    res.setHeader('Cache-Control', cacheControl);
+    const incomplete = data.found === false || (data.failedCves || []).length > 0;
+    res.setHeader('Cache-Control', incomplete ? 'no-store' : cacheControl);
     return res.status(200).json(data);
   } catch (error) {
     console.error(error);
