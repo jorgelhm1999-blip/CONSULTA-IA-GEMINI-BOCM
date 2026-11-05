@@ -1,54 +1,29 @@
-import { getBocmManifest, searchBocmCveBatch } from '../lib/bocm.js';
+import { getBocmManifest, searchBocmCveBatch, downloadBocmBatch } from '../lib/bocm.js';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Método no permitido.' });
-  }
-
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Método no permitido.' });
   const mode = String(req.query.mode || 'manifest');
   const date = String(req.query.date || '');
   const municipality = String(req.query.municipality || '');
-
-  const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T12:00:00Z`) : null;
-  if (!parsedDate || Number.isNaN(parsedDate.valueOf()) || parsedDate.toISOString().slice(0, 10) !== date) {
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T12:00:00Z`) : null;
+  if (!parsed || Number.isNaN(parsed.valueOf()) || parsed.toISOString().slice(0, 10) !== date) {
     return res.status(400).json({ error: 'Fecha no válida.' });
   }
-
   try {
-    let data;
-    if (mode === 'manifest') {
-      data = await getBocmManifest(date);
-    } else if (mode === 'batch') {
-      const cves = String(req.query.cves || '').split(',').filter(Boolean);
-      if (!cves.length || cves.length > 15) {
-        return res.status(400).json({ error: 'Lote de CVE no válido.' });
-      }
-      data = await searchBocmCveBatch(date, municipality, cves);
-    } else {
-      return res.status(400).json({ error: 'Modo de consulta no válido.' });
+    if (mode === 'manifest') return res.status(200).json(await getBocmManifest(date));
+    if (!['download', 'analyze', 'batch'].includes(mode)) return res.status(400).json({ error: 'Modo no válido.' });
+    const cves = [...new Set(String(req.query.cves || '').split(',').filter(Boolean))];
+    const pattern = new RegExp(`^BOCM-${date.replaceAll('-', '')}-[1-9]\\d*$`);
+    const limit = mode === 'analyze' ? 24 : 4;
+    if (!cves.length || cves.length > limit || cves.some(cve => !pattern.test(cve))) {
+      return res.status(400).json({ error: `Lote no válido (máximo ${limit} anuncios de la fecha indicada).` });
     }
-
-    // El boletin del dia puede publicarse o completarse despues de una primera consulta.
-    // Usamos la fecha de Madrid porque las funciones de Vercel se ejecutan en UTC.
-    const madridParts = new Intl.DateTimeFormat('es-ES', {
-      timeZone: 'Europe/Madrid',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    }).formatToParts(new Date());
-    const madridPart = name => madridParts.find(part => part.type === name).value;
-    const madridToday = `${madridPart('year')}-${madridPart('month')}-${madridPart('day')}`;
-
-    const cacheControl = date === madridToday
-      ? 's-maxage=300, stale-while-revalidate=60'
-      : 's-maxage=86400, stale-while-revalidate=604800';
-
-    const incomplete = data.found === false || (data.failedCves || []).length > 0;
-    res.setHeader('Cache-Control', incomplete ? 'no-store' : cacheControl);
+    const data = mode === 'download' ? await downloadBocmBatch(cves)
+      : await searchBocmCveBatch(date, municipality, cves, { cachedOnly: mode === 'analyze' });
     return res.status(200).json(data);
   } catch (error) {
-    console.error(error);
-    return res.status(502).json({ error: error?.message || 'No se ha podido consultar el BOCM.' });
+    console.error('bocmi_search_error', { message: error.message, status: error.status });
+    return res.status(error.status === 429 ? 429 : 502).json({ error: error.message || 'No se ha podido consultar el BOCM.', quota: error.quota || null });
   }
 }

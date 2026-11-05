@@ -1,6 +1,4 @@
-const BATCH_SIZE = 4;
-const MAX_RETRY_ROUNDS = 4;
-const TRANSIENT_HTTP_STATUSES = new Set([429, 500, 502, 503, 504]);
+import { collectBulletin } from './query-client.js';
 const EMAIL_PATTERN = /^[^\s@,<>]+@[^\s@,<>]+\.[^\s@,<>]+$/;
 
 export function madridDate(now = new Date()) {
@@ -36,83 +34,14 @@ function sortCve(a, b) {
   return (Number(a.cve?.split('-').pop()) || 0) - (Number(b.cve?.split('-').pop()) || 0);
 }
 
-async function requestJson(baseUrl, params, fetcher) {
-  const url = new URL('/api/search', baseUrl);
-  url.search = new URLSearchParams({ ...params, cacheVersion: '2' }).toString();
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    let response;
-    try {
-      response = await fetcher(url, { headers: { Accept: 'application/json' } });
-    } catch (error) {
-      if (attempt === 3) throw error;
-    }
-    if (response?.ok) return response.json();
-    if (response && (!TRANSIENT_HTTP_STATUSES.has(response.status) || attempt === 3)) {
-      const detail = await response.json().then(data => String(data?.error || '').slice(0, 250)).catch(() => '');
-      throw new Error(`Bocmi devolvió HTTP ${response.status} al consultar ${params.mode}${detail ? `: ${detail}` : ''}.`);
-    }
-    await new Promise(resolve => setTimeout(resolve, attempt * 1500));
-  }
-}
-
 export async function collectDailyReport(baseUrl, date, fetcher = fetch) {
   validateDate(date);
-  const manifest = await requestJson(baseUrl, { mode: 'manifest', date }, fetcher);
-  if (!manifest.found) return { date, found: false, bulletinNumber: null, bulletinUrl: '', scanned: 0,
-    total: 0, principal: [], complementary: [], doubtful: [] };
-  if (!Array.isArray(manifest.cves) || !manifest.cves.length) throw new Error('El sumario no contiene anuncios comprobables.');
-
-  const cves = [...new Set(manifest.cves)];
-  const principal = new Map();
-  const complementary = new Map();
-  const doubtful = new Map();
-  const failed = new Set(manifest.failedCves || []);
-
-  async function processBatch(batch) {
-    let data;
-    try {
-      data = await requestJson(baseUrl, { mode: 'batch', date, cves: batch.join(',') }, fetcher);
-    } catch (error) {
-      if (batch.length === 1 || !/HTTP (?:429|5\d\d)|fetch failed|timeout/i.test(String(error))) throw error;
-      console.warn(`El lote de ${batch.length} anuncios falló. Se divide para reintentarlo.`);
-      const middle = Math.ceil(batch.length / 2);
-      await processBatch(batch.slice(0, middle));
-      await processBatch(batch.slice(middle));
-      return;
-    }
-    for (const item of data.results || []) principal.set(item.cve, item);
-    for (const item of data.complementary || []) complementary.set(item.cve, item);
-    for (const item of data.doubtful || []) doubtful.set(item.cve, item);
-    const batchFailed = new Set(data.failedCves || []);
-    for (const cve of batch) {
-      if (batchFailed.has(cve)) failed.add(cve);
-      else failed.delete(cve);
-    }
-  }
-
-  for (let index = 0; index < cves.length; index += BATCH_SIZE) {
-    if (index) await new Promise(resolve => setTimeout(resolve, 1500));
-    await processBatch(cves.slice(index, index + BATCH_SIZE));
-  }
-  for (let round = 0; failed.size && round < MAX_RETRY_ROUNDS; round++) {
-    const pending = [...failed];
-    const pauseMs = (round + 1) * 10000;
-    console.log(`Esperando ${pauseMs / 1000} s antes de reintentar ${pending.length} anuncios pendientes (ronda ${round + 1}/${MAX_RETRY_ROUNDS}).`);
-    await new Promise(resolve => setTimeout(resolve, pauseMs));
-    for (let index = 0; index < pending.length; index += BATCH_SIZE) {
-      if (index) await new Promise(resolve => setTimeout(resolve, 1500));
-      await processBatch(pending.slice(index, index + BATCH_SIZE));
-    }
-  }
-  if (failed.size) throw new Error(`Consulta incompleta: ${failed.size} anuncios sin comprobar (${[...failed].join(', ')}). No se envía correo.`);
-
-  return {
-    date, found: true, bulletinNumber: manifest.bulletinNumber,
-    bulletinUrl: officialUrl(manifest.bulletinUrl), scanned: cves.length, total: cves.length,
-    principal: [...principal.values()].sort(sortCve),
-    complementary: [...complementary.values()].sort(sortCve),
-    doubtful: [...doubtful.values()].sort(sortCve)
-  };
+  const report = await collectBulletin(baseUrl, date, { fetcher, onProgress: progress => {
+    console.log(`BOCM ${progress.phase}: ${progress.downloaded}/${progress.total} descargados, ${progress.scanned} revisados; ${progress.aiCacheHits} análisis reutilizados.`);
+  } });
+  if (report.failedCves.length) throw new Error(`Consulta incompleta: ${report.failedCves.length} anuncios sin comprobar (${report.failedCves.join(', ')}). No se envía correo.`);
+  report.bulletinUrl = officialUrl(report.bulletinUrl);
+  return report;
 }
 
 export function formatReport(report) {
@@ -222,3 +151,4 @@ export async function sendWithGmail(message, env, fetcher = fetch) {
   if (!data.id) throw new Error('Gmail no confirmó el identificador del mensaje enviado.');
   return data.id;
 }
+

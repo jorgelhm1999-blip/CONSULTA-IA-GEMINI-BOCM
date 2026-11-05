@@ -11,14 +11,15 @@ test('el informe incluye anuncios y enlaces oficiales; escapa el texto HTML', as
       found: true, bulletinNumber: 200, bulletinUrl: 'https://www.bocm.es/sumario',
       cves: ['BOCM-20261012-1', 'BOCM-20261012-2']
     });
+    if (params.get('mode') === 'download') return Response.json({ downloadedCves: params.get('cves').split(',') });
     return Response.json({
-      failedCves: [], results: [{ cve: 'BOCM-20261012-2', title: '<Plan especial>',
+      processedCves: params.get('cves').split(','), failedCves: [], results: [{ cve: 'BOCM-20261012-2', title: '<Plan especial>',
         summary: 'Aprobación inicial.', url: 'https://www.bocm.es/anuncio/2' }],
       complementary: [], doubtful: [], existingCount: 2
     });
   };
   const report = await collectDailyReport('https://consulta-ia-gemini-bocm.vercel.app/', '2026-10-12', fetcher);
-  assert.equal(requested.length, 2);
+  assert.equal(requested.length, 3);
   assert.equal(report.scanned, 2);
   assert.equal(report.principal.length, 1);
   const message = formatReport(report);
@@ -37,23 +38,18 @@ test('un XML pendiente impide tratar la consulta como completa y enviar el infor
   );
 });
 
-test('un lote que agota el tiempo se divide y conserva todos los anuncios', async () => {
-  const cves = Array.from({ length: 12 }, (_, index) => `BOCM-20261009-${index + 1}`);
-  let largeRequests = 0;
+test('la cuota no dispara subdivisiones ni reintentos adicionales', async () => {
+  const cves = ['BOCM-20261009-1', 'BOCM-20261009-2'];
+  let aiRequests = 0;
   const fetcher = async url => {
     const params = new URL(url).searchParams;
-    if (params.get('mode') === 'manifest') return Response.json({ found: true, cves, bulletinNumber: 200 });
-    const batch = params.get('cves').split(',');
-    if (batch.length > 6) {
-      largeRequests++;
-      return Response.json({ error: 'Tiempo agotado al consultar anuncios.' }, { status: 502 });
-    }
-    return Response.json({ failedCves: [], results: batch.map(cve => ({ cve, title: cve })) });
+    if (params.get('mode') === 'manifest') return Response.json({ found: true, cves });
+    if (params.get('mode') === 'download') return Response.json({ downloadedCves: cves });
+    aiRequests++;
+    return Response.json({ processedCves: [], analysisError: { status: 429, message: 'Cuota TPM agotada' } });
   };
-  const report = await collectDailyReport('https://consulta-ia-gemini-bocm.vercel.app/', '2026-10-09', fetcher);
-  assert.equal(largeRequests, 3);
-  assert.equal(report.principal.length, 12);
-  assert.equal(report.scanned, 12);
+  await assert.rejects(collectDailyReport('https://bocmi.example', '2026-10-09', fetcher), /Cuota TPM/);
+  assert.equal(aiRequests, 1);
 });
 
 test('Gmail recibe el remitente autorizado y todos los destinatarios', async () => {
@@ -73,3 +69,4 @@ test('Gmail recibe el remitente autorizado y todos los destinatarios', async () 
   assert.equal(await sendWithGmail({ subject: 'Bocmi', text: 'Hola', html: '<p>Hola</p>' }, env, fetcher), 'gmail-id');
   assert.equal(sent, true);
 });
+

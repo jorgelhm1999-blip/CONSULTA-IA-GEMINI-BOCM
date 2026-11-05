@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@vercel/functions": "3.10.6",
     "cheerio": "^1.0.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.18.1"
   }
 }

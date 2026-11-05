@@ -1,3 +1,4 @@
+import { cacheDelete } from '../lib/bocm-cache.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { findLiteralMatch, matchingExcerpt } from '../lib/historical-match.js';
@@ -155,6 +156,7 @@ test('semana y mes: fechas sin publicación se saltan y no hay duplicados', asyn
 
 test('fallo temporal de un XML devuelve pendientes y permite reintentar sin perder resultados', async () => {
   const cves = publications.get('2026-09-25').map(record => record.cve);
+  await cacheDelete(`source:${cves[1]}`);
   temporaryFailures.set(cves[1], 1);
   const initial = await searchHistoricalCveBatch('2026-09-25', 'plan especial', '', cves);
   assert.deepEqual(initial.failedCves, [cves[1]]);
@@ -171,13 +173,13 @@ test('un XML inexistente se identifica como anuncio, no como día fallido', asyn
   assert.deepEqual(result.failedDetails, [{ cve, reason: 'not_found' }]);
 });
 
-test('consulta diaria conserva Gemini y la clasificación en dos etapas', async () => {
+test('consulta diaria revisa el texto completo en una sola llamada', async () => {
   process.env.GEMINI_API_KEY = 'clave-simulada';
   const records = publications.get('2026-09-25');
   const before = geminiCalls;
   const daily = await searchBocmCveBatch('2026-09-25', '', records.map(item => item.cve));
   assert.equal(daily.results.length, 3);
-  assert.equal(geminiCalls - before, 2);
+  assert.equal(geminiCalls - before, 1);
 });
 
 test('interruptor: abierto busca Alcobendas en todo; encendido aplica los mismos criterios Gemini solo a coincidencias', async () => {
@@ -192,11 +194,11 @@ test('interruptor: abierto busca Alcobendas en todo; encendido aplica los mismos
   assert.deepEqual(filtered.results.map(item => item.cve), [cves[0]]);
   assert.equal(filtered.results[0].decision, 'principal');
   assert.equal(filtered.results[0].summary, 'Aprobación del proyecto de urbanización.');
-  assert.equal(geminiCalls - before, 2);
+  assert.equal(geminiCalls - before, 0);
 
   const none = await searchHistoricalCveBatch('2026-08-31', 'palabra inexistente', '', cves, true);
   assert.equal(none.results.length, 0);
-  assert.equal(geminiCalls - before, 2);
+  assert.equal(geminiCalls - before, 0);
 });
 
 test('API histórica rechaza fechas irreales y CVE de otro día', async () => {
@@ -239,3 +241,4 @@ test('API histórica rechaza fechas irreales y CVE de otro día', async () => {
 test('el motor solo consulta dominios oficiales del BOCM y Gemini', () => {
   assert.ok(requested.every(url => url.startsWith('https://www.bocm.es/') || url.startsWith('https://generativelanguage.googleapis.com/')));
 });
+

@@ -1,5 +1,6 @@
+import { cacheGet, cacheSet, singleFlight } from './bocm-cache.js';
 import * as cheerio from 'cheerio';
-import { analyzeBocmRecords } from './gemini-bocm.js';
+import { analyzeBocmRecords, analyzeBocmChunk } from './gemini-bocm.js';
 import { findLiteralMatch, matchingExcerpt } from './historical-match.js';
 
 const BASE = 'https://www.bocm.es';
@@ -283,9 +284,10 @@ function textOf($, selector) {
   return $(selector).first().text().replace(/\s+/g, ' ').trim();
 }
 
-function parseXmlRecord(xml, cve) {
+export function parseXmlRecord(xml, cve) {
   if (!xml || !xml.includes('<documento')) return null;
   const $ = cheerio.load(xml, { xmlMode: true, decodeEntities: true });
+  if (textOf($, 'documento > metadatos > identificador').toUpperCase() !== cve.toUpperCase() || !textOf($, 'documento > texto')) return null;
   const metadataSection = textOf($, 'documento > metadatos > seccion');
   const analysisSection = textOf($, 'documento > analisis > seccion');
   const department = textOf($, 'documento > metadatos > departamento');
@@ -446,14 +448,52 @@ async function mapConcurrent(items, concurrency, mapper) {
   return results;
 }
 
-async function fetchXmlRecordDetailed(cve, { timeoutMs = 5200, attempts = 1 } = {}) {
-  const url = xmlUrlFromCve(cve);
-  const response = await fetchResource(url, { timeoutMs, attempts });
-  if (response.kind !== 'ok') return { status: response.kind, record: null };
-  const record = parseXmlRecord(response.text, cve);
-  return record
-    ? { status: 'ok', record }
-    : { status: 'transient', record: null };
+export function parseHtmlRecord(html, cve) {
+  const $ = cheerio.load(html || '');
+  let legislation;
+  $('script[type="application/ld+json"]').each((_, element) => {
+    try {
+      const data = JSON.parse($(element).text());
+      const entries = Array.isArray(data) ? data : (data['@graph'] || [data]);
+      legislation ||= entries.find(item => item['@type'] === 'Legislation'
+        && item.legislationIdentifier === cve);
+    } catch { /* Not every JSON-LD script is an announcement. */ }
+  });
+  if (!legislation || typeof legislation.text !== 'string' || legislation.text.trim().length < 30) return null;
+  return {
+    cve, title: legislation.name || '', body: legislation.text.replace(/\s+/g, ' ').trim(),
+    section: '', department: '', organization: '',
+    htmlUrl: `${BASE}/${cve.toLowerCase()}`,
+    bulletinNumber: String(legislation.isPartOf?.name || '').match(/\d+$/)?.[0] || '',
+    publicationDate: legislation.datePublished || '', sourceFormat: 'html'
+  };
+}
+
+export async function fetchXmlRecordDetailed(cve, { timeoutMs = 5200, attempts = 1 } = {}) {
+  return singleFlight(`source:${cve}`, async () => {
+    const cached = await cacheGet(`source:${cve}`);
+    if (cached?.cve === cve && cached.body) return { status: 'ok', record: cached, cached: true };
+    const response = await fetchResource(xmlUrlFromCve(cve), { timeoutMs, attempts });
+    let record = response.kind === 'ok' ? parseXmlRecord(response.text, cve) : null;
+    let fallback;
+    if (!record) {
+      fallback = await fetchResource(`${BASE}/${cve.toLowerCase()}`, { timeoutMs: 6000, attempts: 1 });
+      if (fallback.kind === 'ok') record = parseHtmlRecord(fallback.text, cve);
+    }
+    if (record) {
+      await cacheSet(`source:${cve}`, record, 86400);
+      console.info(JSON.stringify({ event: 'bocm_download', cve, format: record.sourceFormat || 'xml' }));
+      return { status: 'ok', record };
+    }
+    return { status: response.kind === 'not_found' && fallback?.kind === 'not_found' ? 'not_found' : 'transient', record: null };
+  });
+}
+
+export async function downloadBocmBatch(cves) {
+  const items = await mapConcurrent(cves, 4, async cve => ({ cve, ...await fetchXmlRecordDetailed(cve) }));
+  return { downloadedCves: items.filter(item => item.record).map(item => item.cve),
+    failedCves: items.filter(item => !item.record).map(item => item.cve),
+    cacheHits: items.filter(item => item.cached).length };
 }
 
 function cveNumber(cve = '') {
@@ -747,6 +787,8 @@ function dailySummaryXmlUrl(date, bulletinNumber) {
 }
 
 export async function getBocmManifest(date, { historical = false } = {}) {
+  const cached = await cacheGet(`manifest:${date}`);
+  if (cached?.found && cached.cves?.length) return cached;
   const compact = String(date || '').replaceAll('-', '');
 
   // El número del boletín se obtiene desde su página oficial, no desde el
@@ -761,7 +803,7 @@ export async function getBocmManifest(date, { historical = false } = {}) {
   const summaryUrl = dailySummaryXmlUrl(date, bulletinNumber);
   const completeUrl = `${BASE}/boletin-completo/BOCM-${compact}/${bulletinNumber}`;
   const summary = await fetchResource(completeUrl, {
-    timeoutMs: historical ? 8000 : 12000, attempts: historical ? 2 : 3
+    timeoutMs: 8000, attempts: 2
   });
   if (summary.kind !== 'ok' || !summary.text) {
     throw new Error('No se pudo obtener la relación oficial de anuncios del boletín.');
@@ -772,24 +814,27 @@ export async function getBocmManifest(date, { historical = false } = {}) {
     throw new Error('La relación oficial no contiene enlaces XML de anuncios del día.');
   }
 
-  return {
+  const manifest = {
     found: true,
     bulletinNumber,
     bulletinUrl: bulletin.url || `${BASE}/boletin/bocm-${compact}-${bulletinNumber}`,
     summaryXmlUrl: summaryUrl,
     cves
   };
+  await cacheSet(`manifest:${date}`, manifest, 300);
+  return manifest;
 }
 
-export async function searchBocmCveBatch(date, municipalityText = '', cveValues = []) {
+export async function searchBocmCveBatch(date, municipalityText = '', cveValues = [], { cachedOnly = false } = {}) {
   const compact = String(date || '').replaceAll('-', '');
   const cves = [...new Set((Array.isArray(cveValues) ? cveValues : [])
     .map(value => String(value || '').trim().toUpperCase())
     .filter(value => new RegExp(`^BOCM-${compact}-\\d+$`).test(value))
-  )].slice(0, 15);
+  )].slice(0, 24);
 
   const fetched = await mapConcurrent(cves, Math.min(4, cves.length), async cve => {
-    const item = await fetchXmlRecordDetailed(cve, { timeoutMs: 9000, attempts: 2 });
+    const record = cachedOnly ? await cacheGet(`source:${cve}`) : null;
+    const item = cachedOnly ? { status: record?.body ? 'ok' : 'transient', record } : await fetchXmlRecordDetailed(cve);
     return { cve, ...item };
   });
 
@@ -802,7 +847,8 @@ export async function searchBocmCveBatch(date, municipalityText = '', cveValues 
     records.push(item.record);
   }
 
-  const decisions = await analyzeBocmRecords(records);
+  const analysis = await analyzeBocmChunk(records);
+  const decisions = analysis.decisions;
   const decisionMap = new Map(decisions.map(item => [item.cve, item]));
   const municipalityFilter = normalize(municipalityText);
   const results = [];
@@ -812,7 +858,8 @@ export async function searchBocmCveBatch(date, municipalityText = '', cveValues 
 
   for (const record of records) {
     const ai = decisionMap.get(record.cve);
-    if (!ai || ai.decision === 'excluir') { excludedCount += 1; continue; }
+    if (!ai) continue;
+    if (ai.decision === 'excluir') { excludedCount += 1; continue; }
 
     const municipality = ai.municipio || municipalityFromRecord(record);
     if (municipalityFilter) {
@@ -849,7 +896,11 @@ export async function searchBocmCveBatch(date, municipalityText = '', cveValues 
 
   const failedCves = fetched.filter(item => item.status !== 'ok' || !item.record).map(item => item.cve);
   return {
-    existingCount: records.length,
+    existingCount: decisions.length,
+    processedCves: decisions.map(item => item.cve),
+    pendingCves: analysis.pendingCves,
+    analysisError: analysis.error || null,
+    metrics: analysis.metrics,
     missingCount,
     transientCount,
     excludedCount,
@@ -947,3 +998,4 @@ export async function searchHistoricalCveBatch(date, query, municipalityText = '
 
   return { existingCount, failedCves, failedDetails, results };
 }
+
