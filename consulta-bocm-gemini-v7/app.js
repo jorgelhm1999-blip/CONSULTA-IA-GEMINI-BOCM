@@ -9,7 +9,7 @@ const searchButton = $('#search');
 const status = $('#status');
 const results = $('#results');
 
-const BATCH_SIZE = 12;
+const BATCH_SIZE = 4;
 const MAX_RETRY_ROUNDS = 3;
 
 const todayParts = new Intl.DateTimeFormat('es-ES', {
@@ -56,6 +56,7 @@ function setLoading(text) {
 }
 
 async function requestJson(params) {
+  params.set('cacheVersion', '2');
   const response = await fetch(`/api/search?${params}`);
   const raw = await response.text();
   let data;
