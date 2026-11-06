@@ -20,7 +20,7 @@ export async function collectBulletin(baseUrl, date, {
         return data;
       } catch (error) {
         if (attempt || error.status === 429 || (error.status && error.status < 500)) throw error;
-        await wait(1500);
+        await wait(params.mode === 'analyze' ? 15000 : 1500);
       }
     }
   }
@@ -94,7 +94,8 @@ export async function collectBulletin(baseUrl, date, {
       if (missing.length) await download(missing);
       if (!done.size && !missing.length) throw new Error('La revisión no avanzó; se conservan los anuncios pendientes.');
       pending = pending.filter(cve => !processed.has(cve));
-      if (pending.length) await wait(1500);
+      // Pace fresh AI work outside Vercel's invocation time budget. Cache-only batches need no pause.
+      if (pending.length && data.metrics?.requested !== 0) await wait(15000);
     }
     update('complete');
     return report;
