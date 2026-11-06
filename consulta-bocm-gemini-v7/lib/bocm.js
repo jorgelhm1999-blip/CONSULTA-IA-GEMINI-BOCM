@@ -171,6 +171,16 @@ function bulletinPageLooksValid(html, compactDate, number) {
 
 async function locateBulletin(dateString, { historical = false } = {}) {
   const compact = dateString.replaceAll('-', '');
+  // Read the official bulletin number directly before probing estimated URLs.
+  // A missing/slow first announcement is not evidence that the whole day is absent.
+  const firstCve = `BOCM-${compact}-1`;
+  const first = await fetchResource(xmlUrlFromCve(firstCve), { timeoutMs: 5000, attempts: 1 });
+  const record = first.kind === 'ok' ? parseXmlRecord(first.text, firstCve) : null;
+  const officialNumber = Number(record?.bulletinNumber);
+  if (record && Number.isInteger(officialNumber) && officialNumber > 0 && officialNumber <= 366) {
+    await cacheSet(`source:${firstCve}`, record, 86400);
+    return { number: officialNumber, url: `${BASE}/boletin/bocm-${compact}-${officialNumber}` };
+  }
   const estimate = publicationDayEstimate(dateString);
   const spread = historical ? 12 : 4;
   const candidates = [estimate];
