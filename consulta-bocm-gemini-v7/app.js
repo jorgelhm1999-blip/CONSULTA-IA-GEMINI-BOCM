@@ -66,35 +66,51 @@ function renderReport(report) {
 }
 
 async function runSearch() {
-  if (!dateInput.value) return;
+  if (!dateInput.value || searchButton.disabled) return;
+  const searchDate = dateInput.value;
+  const dateLabel = searchDate.split('-').reverse().join('/');
   searchButton.disabled = true;
-  setLoading('Leyendo el sumario oficial del BOCM…');
+  dateInput.disabled = true;
+  municipalityInput.disabled = true;
+  setLoading(`Leyendo el sumario oficial del BOCM del ${dateLabel}…`);
   try {
-    const report = await collectBulletin(location.origin, dateInput.value, {
+    const report = await collectBulletin(location.origin, searchDate, {
       municipality: municipalityInput.value.trim(),
       onProgress(progress) {
         const phase = progress.phase === 'download' ? 'Descargando textos' : 'Revisando anuncios';
-        status.textContent = `${phase}: ${progress.downloaded}/${progress.total} descargados · ${progress.scanned} revisados · ${progress.aiCacheHits} análisis reutilizados.`;
+        status.textContent = `${dateLabel} · ${phase}: ${progress.downloaded}/${progress.total} descargados · ${progress.scanned} revisados · ${progress.aiCacheHits} análisis reutilizados.`;
         renderReport(progress);
       }
     });
     if (!report.found) {
-      status.textContent = 'No se ha localizado un boletín para esa fecha.';
+      status.textContent = `No se ha localizado un boletín para el ${dateLabel}.`;
       results.innerHTML = '<div class="empty">No hay BOCM localizado para la fecha seleccionada.</div>';
       return;
     }
     renderReport(report);
     const incomplete = report.failedCves.length;
-    status.textContent = `BOCM nº ${report.bulletinNumber || '?'} · ${report.scanned} anuncios revisados de ${report.total} publicados · ${report.aiCacheHits} análisis reutilizados.${incomplete ? ` Consulta parcial: ${incomplete} pendientes (${report.failedCves.join(', ')}).` : ' Consulta completa.'}`;
+    status.textContent = `${dateLabel} · BOCM nº ${report.bulletinNumber || '?'} · ${report.scanned} anuncios revisados de ${report.total} publicados · ${report.aiCacheHits} análisis reutilizados.${incomplete ? ` Consulta parcial: ${incomplete} pendientes (${report.failedCves.join(', ')}).` : ' Consulta completa.'}`;
     if (!incomplete && !report.principal.length && !report.complementary.length && !report.doubtful.length) {
       results.innerHTML = '<div class="empty">No se han detectado publicaciones de interés en los anuncios revisados.</div>';
     }
   } catch (error) {
     if (error.partialReport) renderReport(error.partialReport);
     const counts = error.partialReport ? ` ${error.partialReport.scanned}/${error.partialReport.total} anuncios revisados.` : '';
-    status.textContent = `${error.message}${counts} Consulta parcial: se conservan los resultados ya recibidos.`;
-  } finally { searchButton.disabled = false; }
+    const hasResults = error.partialReport && ['principal', 'complementary', 'doubtful'].some(key => error.partialReport[key]?.length);
+    status.textContent = `${dateLabel} · ${error.message}${counts}${hasResults ? ' Consulta parcial: se conservan los resultados ya recibidos.' : ' No se ha completado la consulta de esta fecha.'}`;
+    if (!error.partialReport) results.innerHTML = '<div class="empty">No se ha podido obtener el sumario oficial. Puedes reintentar o consultar otra fecha.</div>';
+  } finally {
+    searchButton.disabled = false;
+    dateInput.disabled = false;
+    municipalityInput.disabled = false;
+  }
 }
+
+dateInput.addEventListener('change', () => {
+  if (searchButton.disabled) return;
+  results.innerHTML = '';
+  status.textContent = 'Fecha cambiada. Pulsa Consultar BOCM para iniciar una nueva búsqueda.';
+});
 
 searchButton.addEventListener('click', runSearch);
 municipalityInput.addEventListener('keydown', event => { if (event.key === 'Enter') runSearch(); });
