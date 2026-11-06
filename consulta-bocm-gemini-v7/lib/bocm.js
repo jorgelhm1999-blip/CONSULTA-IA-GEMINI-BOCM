@@ -479,7 +479,7 @@ export function parseHtmlRecord(html, cve) {
   };
 }
 
-export async function fetchXmlRecordDetailed(cve, { timeoutMs = 5200, attempts = 1 } = {}) {
+export async function fetchXmlRecordDetailed(cve, { timeoutMs = 12000, attempts = 1 } = {}) {
   return singleFlight(`source:${cve}`, async () => {
     const cached = await cacheGet(`source:${cve}`);
     if (cached?.cve === cve && cached.body) return { status: 'ok', record: cached, cached: true };
@@ -487,7 +487,7 @@ export async function fetchXmlRecordDetailed(cve, { timeoutMs = 5200, attempts =
     let record = response.kind === 'ok' ? parseXmlRecord(response.text, cve) : null;
     let fallback;
     if (!record) {
-      fallback = await fetchResource(`${BASE}/${cve.toLowerCase()}`, { timeoutMs: 6000, attempts: 1 });
+      fallback = await fetchResource(`${BASE}/${cve.toLowerCase()}`, { timeoutMs: 12000, attempts: 1 });
       if (fallback.kind === 'ok') record = parseHtmlRecord(fallback.text, cve);
     }
     if (record) {
