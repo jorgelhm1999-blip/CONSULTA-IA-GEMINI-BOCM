@@ -9,6 +9,7 @@ const municipalityList = $('#municipality-list');
 const searchButton = $('#search');
 const status = $('#status');
 const results = $('#results');
+const searchIndicator = $('#bocmi-search-indicator');
 
 
 const todayParts = new Intl.DateTimeFormat('es-ES', {
@@ -72,13 +73,20 @@ async function runSearch() {
   searchButton.disabled = true;
   dateInput.disabled = true;
   municipalityInput.disabled = true;
+  searchIndicator.hidden = false;
+  const startedAt = Date.now();
+  let activityMessage = `Leyendo el sumario oficial del BOCM del ${dateLabel}`;
+  const activityTimer = setInterval(() => {
+    status.textContent = `${activityMessage} · en curso (${Math.floor((Date.now() - startedAt) / 1000)} s)`;
+  }, 1000);
   setLoading(`Leyendo el sumario oficial del BOCM del ${dateLabel}…`);
   try {
     const report = await collectBulletin(location.origin, searchDate, {
       municipality: municipalityInput.value.trim(),
       onProgress(progress) {
         const phase = progress.phase === 'download' ? 'Descargando textos' : 'Revisando anuncios';
-        status.textContent = `${dateLabel} · ${phase}: ${progress.downloaded}/${progress.total} descargados · ${progress.scanned} revisados · ${progress.aiCacheHits} análisis reutilizados.`;
+        activityMessage = `${dateLabel} · ${phase}: ${progress.downloaded}/${progress.total} descargados · ${progress.scanned} revisados · ${progress.aiCacheHits} análisis reutilizados`;
+        status.textContent = `${activityMessage} · en curso (${Math.floor((Date.now() - startedAt) / 1000)} s)`;
         renderReport(progress);
       }
     });
@@ -100,6 +108,8 @@ async function runSearch() {
     status.textContent = `${dateLabel} · ${error.message}${counts}${hasResults ? ' Consulta parcial: se conservan los resultados ya recibidos.' : ' No se ha completado la consulta de esta fecha.'}`;
     if (!error.partialReport) results.innerHTML = '<div class="empty">No se ha podido obtener el sumario oficial. Puedes reintentar o consultar otra fecha.</div>';
   } finally {
+    clearInterval(activityTimer);
+    searchIndicator.hidden = true;
     searchButton.disabled = false;
     dateInput.disabled = false;
     municipalityInput.disabled = false;
