@@ -140,6 +140,42 @@ test('los errores transitorios reintentan solo decisiones pendientes en otra pet
   };
   const report = await collectBulletin('https://example.com', '2026-11-05', { fetcher, wait: async ms => pauses.push(ms) });
   assert.deepEqual(sent, [cves, [cves[1]]]);
-  assert.deepEqual(pauses, [5000]);
+  assert.deepEqual(pauses, [15000]);
   assert.equal(report.scanned, 2);
+});
+
+test('un timeout de Gemini se comunica como 504 y mantiene el CVE pendiente', async () => {
+  const original = fetch;
+  process.env.GEMINI_API_KEY = 'test-timeout';
+  try {
+    globalThis.fetch = async () => { throw new DOMException('aborted', 'AbortError'); };
+    const result = await analyzeBocmChunk([record(9050)]);
+    assert.equal(result.error.status, 504);
+    assert.deepEqual(result.pendingCves, [record(9050).cve]);
+  } finally { globalThis.fetch = original; delete process.env.GEMINI_API_KEY; }
+});
+
+test('tras un timeout se reduce el lote sin repetir decisiones válidas', async () => {
+  const cves = [record(9060).cve, record(9061).cve];
+  const targets = [];
+  const pauses = [];
+  const fetcher = async url => {
+    const p = new URL(url).searchParams;
+    if (p.get('mode') === 'manifest') return Response.json({ found: true, cves });
+    if (p.get('mode') === 'download') return Response.json({ downloadedCves: cves });
+    targets.push(Number(p.get('targetTokens')));
+    const batch = p.get('cves').split(',');
+    if (targets.length === 1) return Response.json({
+      processedCves: [cves[0]], results: [{ cve: cves[0] }],
+      analysisError: { status: 504, message: 'Gemini tardó demasiado en responder.' }
+    });
+    return Response.json({ processedCves: batch, results: batch.map(cve => ({ cve })) });
+  };
+  const report = await collectBulletin('https://example.com', '2026-11-05', {
+    fetcher, wait: async ms => pauses.push(ms)
+  });
+  assert.deepEqual(targets, [8000, 4000]);
+  assert.deepEqual(pauses, [15000]);
+  assert.equal(report.scanned, 2);
+  assert.deepEqual(report.failedCves, []);
 });

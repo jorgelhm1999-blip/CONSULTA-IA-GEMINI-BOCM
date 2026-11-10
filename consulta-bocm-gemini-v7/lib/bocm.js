@@ -835,7 +835,7 @@ export async function getBocmManifest(date, { historical = false } = {}) {
   return manifest;
 }
 
-export async function searchBocmCveBatch(date, municipalityText = '', cveValues = [], { cachedOnly = false } = {}) {
+export async function searchBocmCveBatch(date, municipalityText = '', cveValues = [], { cachedOnly = false, targetTokens } = {}) {
   const compact = String(date || '').replaceAll('-', '');
   const cves = [...new Set((Array.isArray(cveValues) ? cveValues : [])
     .map(value => String(value || '').trim().toUpperCase())
@@ -857,7 +857,7 @@ export async function searchBocmCveBatch(date, municipalityText = '', cveValues 
     records.push(item.record);
   }
 
-  const analysis = await analyzeBocmChunk(records);
+  const analysis = await analyzeBocmChunk(records, { targetTokens });
   const decisions = analysis.decisions;
   const decisionMap = new Map(decisions.map(item => [item.cve, item]));
   const municipalityFilter = normalize(municipalityText);

@@ -63,10 +63,11 @@ export async function collectBulletin(baseUrl, date, {
     let pending = all.filter(cve => downloaded.has(cve));
     const restores = new Map();
     const analysisFailures = new Map();
+    let targetTokens = 8000;
     while (pending.length) {
       update('analyze');
       const batch = pending.slice(0, 24);
-      const data = await request({ mode: 'analyze', municipality, cves: batch.join(',') });
+      const data = await request({ mode: 'analyze', municipality, cves: batch.join(','), targetTokens });
       for (const [key, field] of [['principal', 'results'], ['complementary', 'complementary'], ['doubtful', 'doubtful']]) {
         for (const item of data[field] || []) if (batch.includes(item.cve)) maps[key].set(item.cve, item);
       }
@@ -78,9 +79,13 @@ export async function collectBulletin(baseUrl, date, {
         const error = Object.assign(new Error(data.analysisError.message), data.analysisError);
         const failed = batch.filter(cve => !processed.has(cve));
         for (const cve of failed) analysisFailures.set(cve, (analysisFailures.get(cve) || 0) + 1);
+        if (error.status === 504 && targetTokens > 2000) {
+          targetTokens = Math.max(2000, Math.floor(targetTokens / 2));
+          console.warn(`Gemini agotó el tiempo: próximo lote objetivo ${targetTokens} tokens estimados, ${failed.length} anuncios pendientes.`);
+        }
         if (![500, 502, 503, 504].includes(error.status) || !failed.length
-          || failed.some(cve => analysisFailures.get(cve) >= 2)) throw error;
-        await wait(5000);
+          || failed.some(cve => analysisFailures.get(cve) >= 3)) throw error;
+        await wait(15000);
         pending = pending.filter(cve => !processed.has(cve));
         continue;
       }

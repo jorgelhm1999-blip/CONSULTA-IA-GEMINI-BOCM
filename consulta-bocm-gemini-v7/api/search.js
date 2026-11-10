@@ -19,8 +19,12 @@ export default async function handler(req, res) {
     if (!cves.length || cves.length > limit || cves.some(cve => !pattern.test(cve))) {
       return res.status(400).json({ error: `Lote no válido (máximo ${limit} anuncios de la fecha indicada).` });
     }
+    const targetTokens = Number(req.query.targetTokens || 0);
+    if (mode === 'analyze' && targetTokens && ![2000, 4000, 8000].includes(targetTokens)) {
+      return res.status(400).json({ error: 'Tamaño de lote no válido.' });
+    }
     const data = mode === 'download' ? await downloadBocmBatch(cves)
-      : await searchBocmCveBatch(date, municipality, cves, { cachedOnly: mode === 'analyze' });
+      : await searchBocmCveBatch(date, municipality, cves, { cachedOnly: mode === 'analyze', targetTokens });
     return res.status(200).json(data);
   } catch (error) {
     console.error('bocmi_search_error', { message: error.message, status: error.status });

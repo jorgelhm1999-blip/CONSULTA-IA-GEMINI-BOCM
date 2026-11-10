@@ -73,14 +73,14 @@ async function callGemini(input, stage) {
     }
   });
 
-  async function attemptModel(modelName, delays) {
+  async function attemptModel(modelName, delays, timeoutMs) {
     const url = `${API_BASE}/${encodeURIComponent(modelName)}:generateContent`;
     let lastError;
     for (let attempt = 0; attempt < delays.length; attempt += 1) {
       if (delays[attempt]) await new Promise(resolve => setTimeout(resolve, delays[attempt]));
       await paceCall();
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 20000);
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
         const response = await fetch(url, {
@@ -118,7 +118,7 @@ async function callGemini(input, stage) {
         catch { throw new Error('Gemini devolvió una clasificación que no pudo interpretarse como JSON.'); }
       } catch (error) {
         lastError = error?.name === 'AbortError'
-          ? new Error('Gemini tardó demasiado en responder.')
+          ? Object.assign(new Error('Gemini tardó demasiado en responder.'), { status: 504, model: modelName })
           : error;
         const transient = error?.name === 'AbortError' || [500, 502, 503, 504].includes(error?.status);
         if (!transient || attempt === delays.length - 1) break;
@@ -130,12 +130,12 @@ async function callGemini(input, stage) {
   }
 
   try {
-    return await attemptModel(model, [0]);
+    return await attemptModel(model, [0], 30000);
   } catch (error) {
     // A 503 indicates model capacity; a project-wide 429 must not switch models.
     if (error.status !== 503 || !fallbackModel || fallbackModel === model) throw error;
     console.warn(`Gemini ${model} sin capacidad (503). Probando ${fallbackModel}.`);
-    return attemptModel(fallbackModel, [0]);
+    return attemptModel(fallbackModel, [0], 20000);
   }
 }
 
@@ -199,7 +199,7 @@ function validDecision(item) {
     && ['cve', 'categoria', 'objeto_real', 'motivo', 'municipio', 'resumen'].every(key => typeof item[key] === 'string');
 }
 
-export async function analyzeBocmChunk(records, { singleLegacyBatch = false } = {}) {
+export async function analyzeBocmChunk(records, { singleLegacyBatch = false, targetTokens } = {}) {
   const models = modelNames();
   const found = await Promise.all(records.map(async record => {
     for (const model of models) {
@@ -210,7 +210,7 @@ export async function analyzeBocmChunk(records, { singleLegacyBatch = false } = 
   }));
   const decisions = found.filter(Boolean);
   const missing = records.filter((_, index) => !found[index]);
-  const configured = Number(process.env.GEMINI_BATCH_TARGET_TOKENS || 8000);
+  const configured = Number(targetTokens || process.env.GEMINI_BATCH_TARGET_TOKENS || 8000);
   const target = Number.isFinite(configured) ? Math.min(16000, Math.max(2000, configured)) : 8000;
   const packed = singleLegacyBatch
     ? { records: missing, estimatedInputTokens: Math.ceil((CRITERIOS_BOCM.length + STAGE.length + JSON.stringify(missing.map(record => compactRecord(record, true))).length) / 3) }
@@ -247,7 +247,8 @@ export async function analyzeBocmChunk(records, { singleLegacyBatch = false } = 
     }
   }
   const processed = new Set(decisions.map(item => item.cve));
-  console.info(JSON.stringify({ event: 'bocmi_analysis', ...metrics, status: error?.status || 200 }));
+  console.info(JSON.stringify({ event: 'bocmi_analysis', ...metrics, pending: records.length - processed.size,
+    status: error?.status || 200, error: error?.message || null }));
   return { decisions, pendingCves: records.filter(record => !processed.has(record.cve)).map(record => record.cve), metrics, error };
 }
 
