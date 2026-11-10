@@ -44,6 +44,26 @@ export async function collectDailyReport(baseUrl, date, fetcher = fetch) {
   return report;
 }
 
+// A failed complete pass may still have cached many valid source texts and AI
+// decisions. Retry the report itself so nobody has to warm the web UI by hand.
+export async function collectDailyReportWithRetry(baseUrl, date, {
+  collect = collectDailyReport, wait = ms => new Promise(resolve => setTimeout(resolve, ms)),
+  maxAttempts = 3
+} = {}) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await collect(baseUrl, date);
+    } catch (error) {
+      const transient = error.status === 504 || error.status === 502 || error.status === 503
+        || /Consulta incompleta|Gemini tardó demasiado|HTTP 50[0234]|fetch failed|timeout/i.test(error.message || '');
+      if (!transient || attempt === maxAttempts) throw error;
+      const pauseMs = attempt * 60000;
+      console.warn(`Informe incompleto (intento ${attempt}/${maxAttempts}): ${error.message}. Reintentando automáticamente en ${pauseMs / 1000} s; se conserva lo validado.`);
+      await wait(pauseMs);
+    }
+  }
+}
+
 export function formatReport(report) {
   const prettyDate = report.date.split('-').reverse().join('/');
   const subject = `Bocmi · BOCM ${prettyDate}`;

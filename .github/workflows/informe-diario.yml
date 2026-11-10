@@ -50,5 +50,6 @@ jobs:
         with:
           name: bocmi-report-${{ steps.report.outputs.sent_date }}
           path: consulta-bocm-gemini-v7/.bocmi-sent.txt
+          include-hidden-files: true
           retention-days: 90
 

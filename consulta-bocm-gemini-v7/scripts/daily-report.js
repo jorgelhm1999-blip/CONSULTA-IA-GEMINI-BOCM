@@ -1,4 +1,4 @@
-import { collectDailyReport, formatReport, madridDate, parseMailConfig, sendWithGmail, validateDate } from '../lib/daily-report.js';
+import { collectDailyReportWithRetry, formatReport, madridDate, parseMailConfig, sendWithGmail, validateDate } from '../lib/daily-report.js';
 import { appendFile, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 
@@ -28,7 +28,7 @@ if (!dryRun) {
     process.exit(0);
   }
 }
-const report = await collectDailyReport(baseUrl, date);
+const report = await collectDailyReportWithRetry(baseUrl, date);
 const message = formatReport(report);
 
 console.log(`Fecha ${date}: boletín ${report.found ? report.bulletinNumber : 'no localizado'}, ` +
@@ -59,3 +59,4 @@ if (dryRun) {
   await writeFile('.bocmi-sent.txt', `BOCM ${date}, ${confirmation}\n`, { mode: 0o600 });
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `sent_date=${date}\n`);
 }
+

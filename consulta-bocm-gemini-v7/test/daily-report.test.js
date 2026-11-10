@@ -1,6 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collectDailyReport, formatReport, parseMailConfig, sendWithGmail } from '../lib/daily-report.js';
+import { collectDailyReport, collectDailyReportWithRetry, formatReport, parseMailConfig, sendWithGmail } from '../lib/daily-report.js';
+
+test('un fallo transitorio reintenta el informe completo y aprovecha el progreso previo', async () => {
+  let calls = 0;
+  const pauses = [];
+  const expected = { scanned: 106, failedCves: [] };
+  const result = await collectDailyReportWithRetry('https://bocmi.example', '2026-11-10', {
+    collect: async () => {
+      calls += 1;
+      if (calls < 3) throw Object.assign(new Error('Gemini tardó demasiado en responder.'), { status: 502 });
+      return expected;
+    },
+    wait: async ms => { pauses.push(ms); }
+  });
+  assert.equal(result, expected);
+  assert.equal(calls, 3);
+  assert.deepEqual(pauses, [60000, 120000]);
+});
+
+test('la cuota agotada no provoca nuevos intentos del informe', async () => {
+  let calls = 0;
+  await assert.rejects(collectDailyReportWithRetry('https://bocmi.example', '2026-11-10', {
+    collect: async () => { calls += 1; throw Object.assign(new Error('Cuota agotada'), { status: 429 }); },
+    wait: async () => { throw new Error('No debe esperar'); }
+  }), /Cuota agotada/);
+  assert.equal(calls, 1);
+});
 
 test('el informe incluye anuncios y enlaces oficiales; escapa el texto HTML', async () => {
   const requested = [];
@@ -69,4 +95,5 @@ test('Gmail recibe el remitente autorizado y todos los destinatarios', async () 
   assert.equal(await sendWithGmail({ subject: 'Bocmi', text: 'Hola', html: '<p>Hola</p>' }, env, fetcher), 'gmail-id');
   assert.equal(sent, true);
 });
+
 
